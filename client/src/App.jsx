@@ -1,242 +1,152 @@
-import { useState } from "react";
-import { GAME_STATE } from "./constants.js";
+import { useState, useEffect } from "react";
+import { C } from "./constants.js";
+import { cellKey, bfsDistance } from "./algorithms/Bfs.js";
+import { generateCity, getCityStats } from "./engine/cityGenerator.js";
+import { createGameState, tick, placeWall } from "./engine/outbreakEngine.js";
+import { calculateScore, getGrade, formatScore, getScoreBreakdown } from "./engine/scoring.js";
 
-/**
- * App.jsx — root component and screen router.
- *
- * Step 1 renders a placeholder for each screen so we can verify
- * the app boots cleanly. Real screens are wired in Step 3.
- *
- * State that lives here (passed down as props):
- *   screen       — current GAME_STATE value
- *   playerName   — set on the menu screen, used everywhere
- *   difficulty   — "easy" | "medium" | "hard"
- *   score        — cumulative score across rounds
- *   lives        — remaining lives (starts at MAX_LIVES)
- */
-export default function App() {
-  const [screen,     setScreen]     = useState(GAME_STATE.MENU);
-  const [playerName, setPlayerName] = useState("");
-  const [difficulty, setDifficulty] = useState("medium");
-  const [score,      setScore]      = useState(0);
-  const [lives,      setLives]      = useState(3);
+function runEngineSmokeTest() {
+  const results = {};
 
-  // Shared navigation helper passed to every screen
-  const navigate = (nextScreen, patches = {}) => {
-    if (patches.score      !== undefined) setScore(patches.score);
-    if (patches.lives      !== undefined) setLives(patches.lives);
-    if (patches.playerName !== undefined) setPlayerName(patches.playerName);
-    if (patches.difficulty !== undefined) setDifficulty(patches.difficulty);
-    setScreen(nextScreen);
+  const city = generateCity("medium");
+  results.city = {
+    rows: city.rows, cols: city.cols,
+    totalBuildings: city.grid.size,
+    hospitalKey: city.hospitalKey,
+    patientZeroKey: city.patientZeroKey,
+    seed: city.seed,
+    toolBudgets: city.toolBudgets,
   };
 
-  const sharedProps = { playerName, difficulty, score, lives, navigate };
+  let state = createGameState("easy", "TestPlayer");
+  const prepTicks = state.prepSecsLeft;
+  for (let i = 0; i < prepTicks; i++) state = tick(state);
 
-  return (
-    <div style={styles.root}>
-      {screen === GAME_STATE.MENU      && <PlaceholderScreen label="Menu Screen"      color="#0d3320" {...sharedProps} />}
-      {screen === GAME_STATE.PREP      && <PlaceholderScreen label="Prep Phase"       color="#1a2e0a" {...sharedProps} />}
-      {screen === GAME_STATE.RUNNING   && <PlaceholderScreen label="Game Running"     color="#1a0a0a" {...sharedProps} />}
-      {screen === GAME_STATE.ROUND_WIN && <PlaceholderScreen label="Round Win"        color="#0a1a2e" {...sharedProps} />}
-      {screen === GAME_STATE.GAME_OVER && <PlaceholderScreen label="Game Over"        color="#1a0000" {...sharedProps} />}
-      {screen === GAME_STATE.WIN       && <PlaceholderScreen label="Victory!"         color="#0a2e0a" {...sharedProps} />}
-    </div>
-  );
-}
+  results.afterPrep = { phase: state.phase, waveCount: state.waveCount };
 
-// ─── STEP 1 PLACEHOLDER ───────────────────────────────────────────────────────
-// Replaced with real screens in Step 3.
-// Shows BFS is importable and all constants load correctly.
-function PlaceholderScreen({ label, color, navigate, playerName, difficulty, score, lives }) {
-  const [bfsLog, setBfsLog] = useState([]);
-
-  const runBfsDemo = async () => {
-    // Dynamically import so the test is real — same path the engine will use
-    const {
-      createBfsState,
-      bfsStep,
-      placeWall,
-      dropFlare,
-      deployHazmat,
-      bfsShortestPath,
-      edgeKey,
-    } = await import("./algorithms/Bfs.js");
-
-    const ROWS = 4, COLS = 4;
-    const state = createBfsState([0], ROWS, COLS); // Patient Zero = top-left
-
-    // Place a wall between node 1 and node 2 to test wall blocking
-    placeWall(state, 1, 2);
-
-    // Drop a flare on node 5 — 2 extra wave delay
-    dropFlare(state, 5, 2);
-
-    const log = [`Created BFS state. Patient Zero = node 0 (4×4 grid)`];
-    log.push(`Wall placed: edge ${edgeKey(1, 2)} severed`);
-    log.push(`Flare on node 5 — 2 wave delay`);
-
-    for (let wave = 1; wave <= 6; wave++) {
-      const { newlyInfected, done } = bfsStep(state);
-      log.push(
-        `Wave ${wave}: newly infected = [${[...newlyInfected].join(", ") || "none"}]` +
-        (done ? "  ← BFS complete" : "")
-      );
-      if (done) break;
+  const pz = state.grid.get(state.patientZeroKey);
+  const dirs = [[-1,0],[1,0],[0,-1],[0,1]];
+  let wallPlaced = false;
+  for (const [dr, dc] of dirs) {
+    const nr = pz.row + dr, nc = pz.col + dc;
+    if (nr >= 0 && nr < state.rows && nc >= 0 && nc < state.cols) {
+      state = placeWall(state, state.patientZeroKey, cellKey(nr, nc));
+      wallPlaced = true;
+      break;
     }
+  }
 
-    // Hazmat demo: clear node 4
-    deployHazmat(state, 4);
-    log.push(`Hazmat deployed on node 4 — removed from infected set`);
-    log.push(`Infected set: [${[...state.infected].sort((a,b)=>a-b).join(", ")}]`);
+  for (let i = 0; i < 3; i++) state = tick(state);
 
-    // Shortest path demo
-    const path = bfsShortestPath(0, 15, ROWS, COLS);
-    log.push(`Shortest path 0→15: [${path?.join(" → ") ?? "none"}]`);
+  const stats = getCityStats(state.grid);
+  results.after3Waves = { wallPlaced, wallCount: state.walls.size, waveCount: state.waveCount, infected: stats.infected, clean: stats.clean, pctClean: stats.pctClean };
 
-    setBfsLog(log);
-  };
+  const score = calculateScore({ difficulty: "medium", pctClean: 75, toolsLeft: { wall:3, hazmat:1, flare:2 }, toolBudgets: { wall:8, hazmat:3, flare:5 }, wavesSurvived: 12, secsRemaining: 45 });
+  const breakdown = getScoreBreakdown({ difficulty: "medium", pctClean: 75, toolsLeft: { wall:3, hazmat:1, flare:2 }, toolBudgets: { wall:8, hazmat:3, flare:5 }, wavesSurvived: 12, secsRemaining: 45 });
+  const grade = getGrade(score, "medium");
+  results.scoring = { score, formatted: formatScore(score), grade: grade.grade, gradeLabel: grade.label, multiplier: breakdown.multiplier, breakdown: breakdown.breakdown.map(b => `${b.label}: ${formatScore(b.value)}`) };
+
+  const dist = bfsDistance(state.hospitalKey, state.grid, state.walls, state.rows, state.cols);
+  results.bfsDistance = { wavesToHospital: dist };
+
+  console.group("🧟 Engine Smoke Tests — Step 2");
+  console.log("City Generator:", results.city);
+  console.log("After Prep Phase:", results.afterPrep);
+  console.log("After 3 Waves:", results.after3Waves);
+  console.log("Scoring:", results.scoring);
+  console.log("BFS Distance:", results.bfsDistance);
+  console.groupEnd();
+
+  return results;
+}
+
+export default function App() {
+  const [results, setResults] = useState(null);
+  useEffect(() => { setResults(runEngineSmokeTest()); }, []);
 
   return (
-    <div style={{ ...styles.placeholder, background: color }}>
-      <div style={styles.badge}>STEP 1 — FOUNDATION</div>
-      <h1 style={styles.heading}>{label}</h1>
-
-      <div style={styles.infoRow}>
-        <Chip label="Player"     value={playerName || "—"} />
-        <Chip label="Difficulty" value={difficulty}        />
-        <Chip label="Score"      value={score}             />
-        <Chip label="Lives"      value={lives}             />
-      </div>
-
-      <div style={styles.btnRow}>
-        <NavBtn onClick={() => navigate("menu")}      label="→ Menu"       />
-        <NavBtn onClick={() => navigate("prep")}      label="→ Prep"       />
-        <NavBtn onClick={() => navigate("running")}   label="→ Running"    />
-        <NavBtn onClick={() => navigate("round_win")} label="→ Round Win"  />
-        <NavBtn onClick={() => navigate("game_over")} label="→ Game Over"  />
-        <NavBtn onClick={() => navigate("win")}       label="→ Victory"    />
-      </div>
-
-      <button onClick={runBfsDemo} style={styles.bfsBtn}>
-        ▶ RUN BFS DEMO (check console + output below)
-      </button>
-
-      {bfsLog.length > 0 && (
-        <div style={styles.log}>
-          {bfsLog.map((line, i) => (
-            <div key={i} style={{ color: line.includes("Wave") ? "#4ade80" : "#94a3b8" }}>
-              {line}
-            </div>
-          ))}
+    <div style={S.page}>
+      <GridBg />
+      <div style={S.center}>
+        <div style={{ textAlign:"center" }}>
+          <div style={S.badge}>CDC CRISIS RESPONSE SYSTEM</div>
+          <h1 style={S.title}>ZOMBIE<br/>OUTBREAK</h1>
+          <div style={S.sub}>BFS CONTAINMENT PROTOCOL v2.0</div>
         </div>
-      )}
+
+        <div style={S.card}>
+          <Row label="React + Vite"     s="online"  />
+          <Row label="BFS algorithm"    s="online"  />
+          <Row label="City generator"   s={results ? "online" : "loading"} />
+          <Row label="Outbreak engine"  s={results ? "online" : "loading"} />
+          <Row label="Scoring system"   s={results ? "online" : "loading"} />
+          <Row label="UI components"    s="pending" step="step 3" />
+          <Row label="FastAPI backend"  s="pending" step="step 4" />
+          <Row label="Database + scale" s="pending" step="step 5" />
+        </div>
+
+        {results && <>
+          <Sect title="CITY GENERATOR">
+            <KV k="Grid"       v={`${results.city.rows} × ${results.city.cols} (${results.city.totalBuildings} buildings)`} />
+            <KV k="Hospital"   v={results.city.hospitalKey} />
+            <KV k="Patient 0"  v={results.city.patientZeroKey} />
+            <KV k="Seed"       v={results.city.seed} />
+            <KV k="Budgets"    v={`${results.city.toolBudgets.wall}w · ${results.city.toolBudgets.hazmat}h · ${results.city.toolBudgets.flare}f`} />
+          </Sect>
+          <Sect title="OUTBREAK ENGINE — 3 WAVES">
+            <KV k="Phase after prep"  v={results.afterPrep.phase}      good={results.afterPrep.phase === "outbreak"} />
+            <KV k="Wall placed"       v={String(results.after3Waves.wallPlaced)} good={results.after3Waves.wallPlaced} />
+            <KV k="BFS waves fired"   v={results.after3Waves.waveCount} />
+            <KV k="Infected"          v={results.after3Waves.infected} />
+            <KV k="Clean buildings"   v={`${results.after3Waves.clean} (${results.after3Waves.pctClean}%)`} />
+            <KV k="Waves to hospital" v={results.bfsDistance.wavesToHospital ?? "blocked"} />
+          </Sect>
+          <Sect title="SCORING ENGINE">
+            <KV k="Score (75% clean, medium)" v={results.scoring.formatted} good />
+            <KV k="Grade" v={`${results.scoring.grade} — ${results.scoring.gradeLabel}`} good />
+            <KV k="Multiplier" v={`×${results.scoring.multiplier}`} />
+            {results.scoring.breakdown.map((line, i) => <KV key={i} k="" v={line} />)}
+          </Sect>
+        </>}
+
+        <div style={S.hint}>Open DevTools console for full structured output</div>
+      </div>
     </div>
   );
 }
 
-// ─── MINI COMPONENTS ─────────────────────────────────────────────────────────
-const Chip = ({ label, value }) => (
-  <div style={styles.chip}>
-    <span style={{ color: "#64748b", fontSize: 10, letterSpacing: 2 }}>{label}</span>
-    <span style={{ color: "#e2ffe8", fontWeight: 700 }}>{String(value)}</span>
-  </div>
-);
+function Row({ label, s, step }) {
+  const c = { online: "#22c55e", loading: "#f59e0b", pending: "#475569" };
+  const t = { online: "✓ ONLINE", loading: "⟳ LOADING", pending: step ? `— ${step.toUpperCase()}` : "— PENDING" };
+  return (
+    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"7px 0", borderBottom:"1px solid #1a2332" }}>
+      <span style={{ fontSize:14, fontWeight:500, color:"#e2e8f0" }}>{label}</span>
+      <span style={{ fontSize:11, fontFamily:"'Share Tech Mono',monospace", letterSpacing:1, color:c[s] }}>{t[s]}</span>
+    </div>
+  );
+}
+function Sect({ title, children }) {
+  return <div style={{ background:"#0d1117", border:"1px solid #1a2332", borderRadius:10, padding:"14px 18px" }}>
+    <div style={{ fontSize:10, letterSpacing:4, color:"#22c55e", fontFamily:"'Share Tech Mono',monospace", marginBottom:10 }}>{title}</div>
+    {children}
+  </div>;
+}
+function KV({ k, v, good }) {
+  return <div style={{ display:"flex", justifyContent:"space-between", padding:"4px 0", borderBottom:"1px solid #1a2332" }}>
+    <span style={{ fontSize:12, color:"#64748b", minWidth:160 }}>{k}</span>
+    <span style={{ fontSize:12, fontFamily:"'Share Tech Mono',monospace", color: good ? "#22c55e" : "#e2e8f0", textAlign:"right" }}>{String(v)}</span>
+  </div>;
+}
+function GridBg() {
+  return <div style={{ position:"fixed", inset:0, pointerEvents:"none", zIndex:0, backgroundImage:`linear-gradient(rgba(34,197,94,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(34,197,94,0.03) 1px,transparent 1px)`, backgroundSize:"48px 48px" }} />;
+}
 
-const NavBtn = ({ onClick, label }) => (
-  <button onClick={onClick} style={styles.navBtn}>{label}</button>
-);
-
-// ─── STYLES ───────────────────────────────────────────────────────────────────
-const styles = {
-  root: {
-    minHeight: "100vh",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    background: "#060a0c",
-    fontFamily: "'Barlow', sans-serif",
-    padding: 16,
-  },
-  placeholder: {
-    width: "100%",
-    maxWidth: 680,
-    borderRadius: 16,
-    border: "1px solid #1a3a2a",
-    padding: 32,
-    display: "flex",
-    flexDirection: "column",
-    gap: 20,
-  },
-  badge: {
-    display: "inline-block",
-    fontSize: 10,
-    letterSpacing: 4,
-    color: "#4ade80",
-    background: "#0a2a1a",
-    border: "1px solid #1a4a2a",
-    borderRadius: 4,
-    padding: "3px 10px",
-    alignSelf: "flex-start",
-  },
-  heading: {
-    fontSize: 28,
-    fontWeight: 900,
-    color: "#e2ffe8",
-    letterSpacing: -1,
-    margin: 0,
-  },
-  infoRow: {
-    display: "flex",
-    gap: 12,
-    flexWrap: "wrap",
-  },
-  chip: {
-    background: "#0d1a14",
-    border: "1px solid #1a3a2a",
-    borderRadius: 8,
-    padding: "8px 14px",
-    display: "flex",
-    flexDirection: "column",
-    gap: 2,
-  },
-  btnRow: {
-    display: "flex",
-    gap: 8,
-    flexWrap: "wrap",
-  },
-  navBtn: {
-    padding: "7px 14px",
-    borderRadius: 8,
-    border: "1px solid #1a3a2a",
-    background: "transparent",
-    color: "#64748b",
-    cursor: "pointer",
-    fontFamily: "inherit",
-    fontSize: 12,
-    letterSpacing: 1,
-  },
-  bfsBtn: {
-    padding: "12px 20px",
-    borderRadius: 10,
-    border: "1px solid #4ade80",
-    background: "#0a2a1a",
-    color: "#4ade80",
-    cursor: "pointer",
-    fontFamily: "'Share Tech Mono', monospace",
-    fontSize: 13,
-    letterSpacing: 1,
-    alignSelf: "flex-start",
-  },
-  log: {
-    background: "#070d0a",
-    border: "1px solid #1a3a2a",
-    borderRadius: 8,
-    padding: "14px 16px",
-    fontFamily: "'Share Tech Mono', monospace",
-    fontSize: 12,
-    lineHeight: 1.8,
-    display: "flex",
-    flexDirection: "column",
-    gap: 2,
-  },
+const S = {
+  page: { minHeight:"100vh", background:"#060a0f", color:"#e2e8f0", fontFamily:"'Rajdhani',sans-serif", display:"flex", flexDirection:"column", alignItems:"center", padding:"32px 16px", position:"relative" },
+  center: { position:"relative", zIndex:1, width:"100%", maxWidth:480, display:"flex", flexDirection:"column", gap:20 },
+  badge: { fontSize:10, letterSpacing:6, color:"#22c55e", marginBottom:10, fontFamily:"'Share Tech Mono',monospace" },
+  title: { fontSize:"clamp(2.5rem,9vw,4.5rem)", fontWeight:700, lineHeight:0.9, letterSpacing:-2, color:"#e2e8f0", textShadow:"0 0 40px #ef444433", marginBottom:10 },
+  sub: { fontSize:11, letterSpacing:4, color:"#475569", fontFamily:"'Share Tech Mono',monospace" },
+  card: { background:"#0d1117", border:"1px solid #1a2332", borderRadius:12, padding:"16px 20px" },
+  hint: { fontSize:11, color:"#334155", fontFamily:"'Share Tech Mono',monospace", letterSpacing:2, textAlign:"center", paddingBottom:24 },
 };

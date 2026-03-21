@@ -1,217 +1,131 @@
-/**
- * bfs.js — core BFS algorithm for Zombie Outbreak
- *
- * The city is modelled as an undirected graph:
- *   nodes  = buildings  { id, row, col, type, ...}
- *   edges  = streets between adjacent buildings (up/down/left/right)
- *
- * A quarantine wall severs a specific edge so BFS cannot cross it.
- * A flare adds an extra delay to a node so it is skipped for N extra waves.
- * A hazmat clears a node (removes it from the infected set).
- *
- * The engine calls bfsStep() once per interval tick.
- * Each call spreads infection by exactly ONE wave from every currently
- * infected node — matching the classic BFS "level by level" expansion.
- */
+import { ADJACENCY_DIRS } from "../constants.js";
 
-// ─── GRAPH HELPERS ────────────────────────────────────────────────────────────
+export function cellKey(row, col) {
+  return `${row},${col}`;
+}
 
-/**
- * Returns the four cardinal neighbour IDs of a node, filtering out
- * nodes that sit outside the grid boundaries.
- *
- * @param {number} id   - node id  (row * cols + col)
- * @param {number} rows
- * @param {number} cols
- * @returns {number[]}
- */
-export function getNeighbourIds(id, rows, cols) {
-  const row = Math.floor(id / cols);
-  const col = id % cols;
+export function parseKey(key) {
+  const [row, col] = key.split(",").map(Number);
+  return { row, col };
+}
+
+export function wallKey(keyA, keyB) {
+  return [keyA, keyB].sort().join("|");
+}
+
+export function hasWall(walls, keyA, keyB) {
+  return walls.has(wallKey(keyA, keyB));
+}
+
+export function getNeighbours(row, col, rows, cols) {
   const neighbours = [];
-  if (row > 0)        neighbours.push((row - 1) * cols + col); // up
-  if (row < rows - 1) neighbours.push((row + 1) * cols + col); // down
-  if (col > 0)        neighbours.push(row * cols + (col - 1)); // left
-  if (col < cols - 1) neighbours.push(row * cols + (col + 1)); // right
+  for (const { dr, dc } of ADJACENCY_DIRS) {
+    const nr = row + dr;
+    const nc = col + dc;
+    if (nr >= 0 && nr < rows && nc >= 0 && nc < cols) {
+      neighbours.push(cellKey(nr, nc));
+    }
+  }
   return neighbours;
 }
 
-/**
- * Builds the initial edge set for a fully-connected grid graph.
- * Each edge is stored as a sorted string "minId-maxId" so walls can
- * be looked up in O(1) using a Set.
- *
- * @param {number} rows
- * @param {number} cols
- * @returns {Set<string>}
- */
-export function buildEdgeSet(rows, cols) {
-  const edges = new Set();
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const id = r * cols + c;
-      if (c < cols - 1) edges.add(edgeKey(id, id + 1));       // horizontal
-      if (r < rows - 1) edges.add(edgeKey(id, id + cols));     // vertical
-    }
-  }
-  return edges;
-}
+export function bfsTick(grid, walls, rows, cols, now = Date.now()) {
+  const newlyInfected = [];
+  let hospitalHit = false;
 
-/** Canonical key for an edge between two node IDs. */
-export function edgeKey(a, b) {
-  return a < b ? `${a}-${b}` : `${b}-${a}`;
-}
-
-// ─── BFS STATE ────────────────────────────────────────────────────────────────
-
-/**
- * Creates a fresh BFS state object for a new round.
- *
- * @param {number[]} patientZeroIds   - 1 or more starting infected nodes
- * @param {number}   rows
- * @param {number}   cols
- * @returns {object} bfsState
- */
-export function createBfsState(patientZeroIds, rows, cols) {
-  return {
-    infected:    new Set(patientZeroIds),  // all infected node IDs
-    frontier:    new Set(patientZeroIds),  // nodes that will spread THIS wave
-    flaredelay:  new Map(),                // nodeId -> extra waves to skip
-    walls:       buildEdgeSet(rows, cols), // active edges (wall = remove edge)
-    waveCount:   0,
-    rows,
-    cols,
-  };
-}
-
-// ─── CORE STEP ────────────────────────────────────────────────────────────────
-
-/**
- * Advances the BFS by exactly one wave.
- * Mutates state in-place and returns the set of newly infected node IDs
- * so the UI can animate them.
- *
- * @param {object} state - BFS state from createBfsState()
- * @returns {{ newlyInfected: Set<number>, done: boolean }}
- */
-export function bfsStep(state) {
-  const { infected, frontier, flaredelay, walls, rows, cols } = state;
-  const newlyInfected = new Set();
-  const nextFrontier  = new Set();
-
-  for (const nodeId of frontier) {
-    const neighbours = getNeighbourIds(nodeId, rows, cols);
-
-    for (const nbId of neighbours) {
-      // Skip if already infected
-      if (infected.has(nbId)) continue;
-
-      // Skip if the street between them is walled off
-      if (!walls.has(edgeKey(nodeId, nbId))) continue;
-
-      // Skip if a flare is delaying this node (decrement delay)
-      if (flaredelay.has(nbId)) {
-        const remaining = flaredelay.get(nbId) - 1;
-        if (remaining > 0) {
-          flaredelay.set(nbId, remaining);
-          continue;
-        }
-        flaredelay.delete(nbId);
+  const frontier = [];
+  for (const [key, building] of grid.entries()) {
+    if (building.infected && !building.immune) {
+      const timeSinceInfection = now - (building.infectedAt ?? 0);
+      if (timeSinceInfection >= building.spreadDelay) {
+        frontier.push({ key, building });
       }
-
-      newlyInfected.add(nbId);
     }
   }
 
-  // Commit the new infections
-  for (const id of newlyInfected) {
-    infected.add(id);
-    nextFrontier.add(id);
+  const infectedThisTick = new Set();
+  for (const { key, building } of frontier) {
+    const { row, col } = building;
+    const neighbours = getNeighbours(row, col, rows, cols);
+    for (const neighbourKey of neighbours) {
+      if (infectedThisTick.has(neighbourKey)) continue;
+      const neighbour = grid.get(neighbourKey);
+      if (!neighbour) continue;
+      if (neighbour.infected) continue;
+      if (neighbour.immune) continue;
+      if (hasWall(walls, key, neighbourKey)) continue;
+      infectedThisTick.add(neighbourKey);
+      newlyInfected.push(neighbourKey);
+      if (neighbour.isHospital) hospitalHit = true;
+    }
   }
 
-  state.frontier  = nextFrontier;
-  state.waveCount += 1;
-
-  // BFS is "done" when there is nothing left to spread to
-  const done = nextFrontier.size === 0;
-  return { newlyInfected, done };
-}
-
-// ─── TOOL ACTIONS ─────────────────────────────────────────────────────────────
-
-/**
- * Places a quarantine wall between two adjacent nodes.
- * Removes the edge from the active edge set so BFS will never cross it.
- *
- * @param {object} state
- * @param {number} nodeA
- * @param {number} nodeB
- */
-export function placeWall(state, nodeA, nodeB) {
-  state.walls.delete(edgeKey(nodeA, nodeB));
-}
-
-/**
- * Deploys a hazmat team to a node.
- * Removes the node from both infected and frontier sets.
- * The building is now immune for the rest of the round.
- *
- * @param {object} state
- * @param {number} nodeId
- */
-export function deployHazmat(state, nodeId) {
-  state.infected.delete(nodeId);
-  state.frontier.delete(nodeId);
-}
-
-/**
- * Drops a flare on an uninfected node, adding extra BFS waves of delay.
- *
- * @param {object} state
- * @param {number} nodeId
- * @param {number} delayWaves  - how many extra waves to skip (default 3)
- */
-export function dropFlare(state, nodeId, delayWaves = 3) {
-  if (!state.infected.has(nodeId)) {
-    state.flaredelay.set(nodeId, delayWaves);
+  let infectedCount = 0;
+  for (const building of grid.values()) {
+    if (building.infected) infectedCount++;
   }
+  infectedCount += newlyInfected.length;
+
+  return { newlyInfected, hospitalHit, infectedCount };
 }
 
-// ─── UTILITY ──────────────────────────────────────────────────────────────────
-
-/**
- * Returns true if the given nodeId is infected.
- * @param {object} state
- * @param {number} nodeId
- */
-export function isInfected(state, nodeId) {
-  return state.infected.has(nodeId);
-}
-
-/**
- * Finds the shortest BFS path between two nodes ignoring walls/delays.
- * Used for the "chokepoint hint" feature in the UI.
- *
- * @param {number} startId
- * @param {number} endId
- * @param {number} rows
- * @param {number} cols
- * @returns {number[] | null}  array of node IDs from start to end, or null
- */
-export function bfsShortestPath(startId, endId, rows, cols) {
-  if (startId === endId) return [startId];
-  const visited = new Set([startId]);
-  const queue   = [{ id: startId, path: [startId] }];
+export function bfsReachability(sourceKey, grid, walls, rows, cols) {
+  const visited = new Set([sourceKey]);
+  const queue = [sourceKey];
 
   while (queue.length > 0) {
-    const { id, path } = queue.shift();
-    for (const nbId of getNeighbourIds(id, rows, cols)) {
-      if (visited.has(nbId)) continue;
-      const newPath = [...path, nbId];
-      if (nbId === endId) return newPath;
-      visited.add(nbId);
-      queue.push({ id: nbId, path: newPath });
+    const current = queue.shift();
+    const { row, col } = parseKey(current);
+    const neighbours = getNeighbours(row, col, rows, cols);
+    for (const nKey of neighbours) {
+      if (visited.has(nKey)) continue;
+      const neighbour = grid.get(nKey);
+      if (!neighbour) continue;
+      if (neighbour.immune) continue;
+      if (hasWall(walls, current, nKey)) continue;
+      visited.add(nKey);
+      queue.push(nKey);
     }
   }
-  return null; // no path (disconnected graph — shouldn't happen on a grid)
+
+  visited.delete(sourceKey);
+  return visited;
+}
+
+export function isHospitalReachable(grid, walls, hospitalKey, rows, cols) {
+  for (const [key, building] of grid.entries()) {
+    if (!building.infected) continue;
+    const reachable = bfsReachability(key, grid, walls, rows, cols);
+    if (reachable.has(hospitalKey)) return true;
+  }
+  return false;
+}
+
+export function bfsDistance(targetKey, grid, walls, rows, cols) {
+  const visited = new Map();
+  const queue = [];
+
+  for (const [key, building] of grid.entries()) {
+    if (building.infected) {
+      visited.set(key, 0);
+      queue.push({ key, dist: 0 });
+    }
+  }
+
+  while (queue.length > 0) {
+    const { key, dist } = queue.shift();
+    if (key === targetKey) return dist;
+    const { row, col } = parseKey(key);
+    const neighbours = getNeighbours(row, col, rows, cols);
+    for (const nKey of neighbours) {
+      if (visited.has(nKey)) continue;
+      const neighbour = grid.get(nKey);
+      if (!neighbour || neighbour.immune) continue;
+      if (hasWall(walls, key, nKey)) continue;
+      visited.set(nKey, dist + 1);
+      queue.push({ key: nKey, dist: dist + 1 });
+    }
+  }
+
+  return null;
 }
