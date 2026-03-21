@@ -1,52 +1,101 @@
 // ─── GRID ─────────────────────────────────────────────────────────────────────
-export const GRID_COLS = 18;
-export const GRID_ROWS = 14;
-export const CELL_PX   = 48;
+export const GRID_SIZES = {
+  easy:   { cols: 12, rows: 10 },
+  medium: { cols: 16, rows: 13 },
+  hard:   { cols: 20, rows: 16 },
+};
 
 // ─── BUILDING TYPES ───────────────────────────────────────────────────────────
-// Each type has a label, spread delay (ms between BFS waves), and colour tokens.
 export const BUILDING_TYPES = {
-  APARTMENT:   { label: "APT",  spreadMs: 1000, color: "#1a3a4a", infected: "#7f1d1d" },
-  MARKET:      { label: "MKT",  spreadMs: 1800, color: "#1a2e1a", infected: "#7f1d1d" },
-  INDUSTRIAL:  { label: "IND",  spreadMs: 2800, color: "#2a2416", infected: "#7f1d1d" },
-  PARK:        { label: "PARK", spreadMs: 2200, color: "#0f2a14", infected: "#7f1d1d" },
-  HOSPITAL:    { label: "HOSP", spreadMs: null,  color: "#0a1f3a", infected: "#7f0000" },
+  apartment:  { label: "Apartment",  spreadDelay: 1000, color: "#1e3a5f", infected: "#7f1d1d" },
+  market:     { label: "Market",     spreadDelay: 1800, color: "#1a3a2a", infected: "#7f1d1d" },
+  industrial: { label: "Industrial", spreadDelay: 3000, color: "#2a2a1a", infected: "#7f1d1d" },
+  hospital:   { label: "Hospital",   spreadDelay: 2000, color: "#1a2a3a", infected: "#7f1d1d" },
+  park:       { label: "Park",       spreadDelay: 2500, color: "#14291a", infected: "#7f1d1d" },
 };
+
+// ─── GAME TIMING ─────────────────────────────────────────────────────────────
+export const TICK_INTERVAL_MS = 1000;
+export const PREP_TIME_SEC    = 15;
+export const MAX_ROUND_SEC    = 120;
 
 // ─── TOOLS ────────────────────────────────────────────────────────────────────
 export const TOOLS = {
-  WALL:   { label: "Quarantine Wall", key: "Q", budget: { easy: 10, medium: 7, hard: 5 } },
-  HAZMAT: { label: "Hazmat Team",     key: "H", budget: { easy: 4,  medium: 3, hard: 2 } },
-  FLARE:  { label: "Flare",           key: "F", budget: { easy: 7,  medium: 5, hard: 3 } },
-};
-
-// ─── DIFFICULTY ───────────────────────────────────────────────────────────────
-export const DIFFICULTY = {
-  easy:   { label: "Easy",   bfsIntervalMs: 1600, rounds: 3, multiOutbreak: false },
-  medium: { label: "Medium", bfsIntervalMs: 1100, rounds: 5, multiOutbreak: false },
-  hard:   { label: "Hard",   bfsIntervalMs: 750,  rounds: 5, multiOutbreak: true  },
+  wall: {
+    label:       "Quarantine Wall",
+    description: "Severs BFS connection between two adjacent buildings",
+    key:         "Q",
+    budget:      { easy: 10, medium: 8, hard: 5 },
+    color:       "#f59e0b",
+  },
+  hazmat: {
+    label:       "Hazmat Team",
+    description: "Clears infection and immunises a building",
+    key:         "H",
+    budget:      { easy: 4, medium: 3, hard: 2 },
+    color:       "#3b82f6",
+  },
+  flare: {
+    label:       "Flare",
+    description: "Slows BFS spread from a building by +2 seconds",
+    key:         "F",
+    budget:      { easy: 6, medium: 5, hard: 3 },
+    color:       "#a855f7",
+  },
 };
 
 // ─── SCORING ──────────────────────────────────────────────────────────────────
-export const SCORE = {
-  buildingSaved:    50,   // per clean building at end of round
-  toolUnused:      150,   // per unused tool charge remaining
-  waveBonus:        30,   // per BFS wave survived
-  hospitalBonus:  1000,   // awarded if hospital never infected
-  roundClear:      500,   // base bonus for winning a round
+export const SCORE_WEIGHTS = {
+  buildingSaved:     50,
+  toolUnused_wall:   200,
+  toolUnused_hazmat: 300,
+  toolUnused_flare:  100,
+  waveSurvived:      150,
+  speedBonus:        10,
 };
 
-// ─── GAME STATES ──────────────────────────────────────────────────────────────
-export const GAME_STATE = {
-  MENU:      "menu",
-  PREP:      "prep",       // placement phase before outbreak starts
-  RUNNING:   "running",    // outbreak active
-  ROUND_WIN: "round_win",
-  GAME_OVER: "game_over",
-  WIN:       "win",        // all rounds cleared
+// ─── BFS ──────────────────────────────────────────────────────────────────────
+export const ADJACENCY_DIRS = [
+  { dr: -1, dc:  0 },
+  { dr:  1, dc:  0 },
+  { dr:  0, dc: -1 },
+  { dr:  0, dc:  1 },
+];
+
+// ─── LIVES ────────────────────────────────────────────────────────────────────
+export const MAX_LIVES = 3;
+
+// ─── DIFFICULTY MULTIPLIERS ──────────────────────────────────────────────────
+export const DIFFICULTY_MULTIPLIER = {
+  easy:   1.0,
+  medium: 1.5,
+  hard:   2.5,
 };
 
-// ─── MISC ─────────────────────────────────────────────────────────────────────
-export const MAX_LIVES    = 3;
-export const PREP_TIME_MS = 8000;  // 8 seconds to place tools before outbreak
-export const API_BASE     = "/api"; // proxied to FastAPI via vite.config.js
+// ─── COLORS ───────────────────────────────────────────────────────────────────
+export const C = {
+  bg:          "#060a0f",
+  panel:       "#0d1117",
+  panelBorder: "#1a2332",
+  accent:      "#22c55e",
+  accentDim:   "#14532d",
+  danger:      "#ef4444",
+  dangerDim:   "#7f1d1d",
+  warn:        "#f59e0b",
+  warnDim:     "#451a03",
+  info:        "#3b82f6",
+  infoDim:     "#1e3a5f",
+  text:        "#e2e8f0",
+  textDim:     "#64748b",
+  textMuted:   "#334155",
+  infected:    "#dc2626",
+  immune:      "#0ea5e9",
+  hospital:    "#06b6d4",
+  wall:        "#f59e0b",
+  hazmat:      "#3b82f6",
+  flare:       "#a855f7",
+  patientZero: "#ff6b35",
+};
+
+// ─── API ──────────────────────────────────────────────────────────────────────
+export const API_BASE = "/api";
