@@ -6,19 +6,70 @@ const LB_KEY = "zombie_outbreak_lb_v1";
 
 export function saveToLeaderboard(entry) {
   try {
-    const raw  = localStorage.getItem(LB_KEY);
-    const all  = raw ? JSON.parse(raw) : [];
-    all.push({ ...entry, date: new Date().toLocaleDateString() });
-    all.sort((a, b) => b.totalScore - a.totalScore);
+    const raw = localStorage.getItem(LB_KEY);
+    const all = raw ? JSON.parse(raw) : [];
+
+    const existingIdx = all.findIndex(
+      e => (e.playerName ?? e.player_name) === entry.playerName
+    );
+
+    if (existingIdx >= 0) {
+      const existing = all[existingIdx];
+      const existingScore = existing.totalScore ?? existing.total_score ?? 0;
+      if (entry.totalScore > existingScore) {
+        all[existingIdx] = {
+          playerName:  entry.playerName,
+          difficulty:  entry.difficulty,
+          round:       entry.round,
+          totalScore:  entry.totalScore,
+          roundScore:  entry.roundScore,
+          date:        new Date().toLocaleDateString(),
+        };
+      }
+    } else {
+      all.push({
+        playerName:  entry.playerName,
+        difficulty:  entry.difficulty,
+        round:       entry.round,
+        totalScore:  entry.totalScore,
+        roundScore:  entry.roundScore,
+        date:        new Date().toLocaleDateString(),
+      });
+    }
+
+    all.sort((a, b) =>
+      (b.totalScore ?? b.total_score ?? 0) - (a.totalScore ?? a.total_score ?? 0)
+    );
     localStorage.setItem(LB_KEY, JSON.stringify(all.slice(0, 100)));
   } catch {}
 }
 
-export function loadLeaderboard() {
+export function loadLeaderboard(difficulty = "all") {
   try {
     const raw = localStorage.getItem(LB_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch { return []; }
+    const all = raw ? JSON.parse(raw) : [];
+
+    const filtered = difficulty === "all"
+      ? all
+      : all.filter(e => e.difficulty === difficulty);
+
+    // Deduplicate by playerName — keep highest score per player
+    const best = {};
+    for (const e of filtered) {
+      const name  = e.playerName ?? e.player_name;
+      const score = e.totalScore ?? e.total_score ?? 0;
+      if (!name) continue;
+      if (!best[name] || score > (best[name].totalScore ?? 0)) {
+        best[name] = { ...e, playerName: name, totalScore: score };
+      }
+    }
+
+    return Object.values(best)
+      .sort((a, b) => (b.totalScore ?? 0) - (a.totalScore ?? 0))
+      .slice(0, 20);
+  } catch {
+    return [];
+  }
 }
 
 export default function Leaderboard({ onClose }) {
@@ -26,13 +77,10 @@ export default function Leaderboard({ onClose }) {
   const [filter,  setFilter]  = useState("all");
 
   useEffect(() => {
-    setEntries(loadLeaderboard());
-  }, []);
+    setEntries(loadLeaderboard(filter));
+  }, [filter]);
 
   const difficulties = ["all", "easy", "medium", "hard"];
-  const filtered = filter === "all"
-    ? entries
-    : entries.filter(e => e.difficulty === filter);
 
   return (
     <div style={S.wrap}>
@@ -46,7 +94,6 @@ export default function Leaderboard({ onClose }) {
         )}
       </div>
 
-      {/* Filter tabs */}
       <div style={S.tabs}>
         {difficulties.map(d => (
           <button key={d} onClick={() => setFilter(d)} style={{
@@ -60,15 +107,14 @@ export default function Leaderboard({ onClose }) {
         ))}
       </div>
 
-      {/* Entries */}
       <div style={S.list}>
-        {filtered.length === 0 ? (
+        {entries.length === 0 ? (
           <div style={S.empty}>No scores yet — be the first to contain the outbreak.</div>
         ) : (
-          filtered.slice(0, 20).map((e, i) => {
+          entries.map((e, i) => {
             const medal = getRankMedal(i);
             return (
-              <div key={i} style={{
+              <div key={`${e.playerName}-${i}`} style={{
                 ...S.row,
                 background: i < 3 ? `${medal.color}0d` : "transparent",
                 borderColor: i < 3 ? `${medal.color}33` : C.panelBorder,
@@ -83,7 +129,7 @@ export default function Leaderboard({ onClose }) {
                   </div>
                 </div>
                 <div style={{ ...S.score, color: i < 3 ? medal.color : C.accent }}>
-                  {formatScore(e.totalScore)}
+                  {formatScore(e.totalScore ?? 0)}
                 </div>
               </div>
             );
