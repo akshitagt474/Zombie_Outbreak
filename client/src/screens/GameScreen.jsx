@@ -8,7 +8,7 @@
 import { C }       from "../constants.js";
 import CityGrid    from "../components/CityGrid.jsx";
 import HUD         from "../components/HUD.jsx";
-import ToolBar     from "../components/ToolBar.jsx";
+import ToolBar     from "../components/Toolbar.jsx";
 import GameOver    from "../components/GameOver.jsx";
 
 export default function GameScreen({ gameState, selectedKey, actions, player }) {
