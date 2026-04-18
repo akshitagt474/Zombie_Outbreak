@@ -1,7 +1,7 @@
 import { C } from "../constants.js";
 import CityGrid  from "../components/CityGrid.jsx";
 import HUD       from "../components/HUD.jsx";
-import ToolBar   from "../components/Toolbar.jsx";
+import Toolbar   from "../components/Toolbar.jsx";
 import GameOver  from "../components/GameOver.jsx";
 
 export default function GameScreen({ gameState, selectedKey, actions }) {
@@ -32,7 +32,7 @@ export default function GameScreen({ gameState, selectedKey, actions }) {
         {/* Left — HUD */}
         <div style={S.left}>
           <HUD gameState={gameState} />
-          <ToolBar gameState={gameState} onSelectTool={actions.selectTool} />
+          <Toolbar gameState={gameState} onSelectTool={actions.selectTool} />
         </div>
 
         {/* Centre — City Grid */}
