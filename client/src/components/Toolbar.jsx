@@ -78,7 +78,7 @@ export default function ToolBar({ gameState, onSelectTool }) {
       {/* Instructions */}
       <div style={S.tip}>
         {activeTool === "wall"
-          ? "Click a building, then click a neighbour to place a wall"
+          ? "Click a building, then a neighbour to place a wall. Hospital edges cannot be sealed."
           : activeTool === "hazmat"
           ? "Click any building to clear infection + immunise"
           : "Click any building to slow its BFS spread by +2s"}

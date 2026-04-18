@@ -16,7 +16,7 @@ export const BUILDING_TYPES = {
 
 // ─── GAME TIMING ─────────────────────────────────────────────────────────────
 export const TICK_INTERVAL_MS = 1000;
-export const PREP_TIME_SEC    = 15;
+export const PREP_TIME_SEC    = 5;
 export const MAX_ROUND_SEC    = 120;
 
 // ─── TOOLS ────────────────────────────────────────────────────────────────────
