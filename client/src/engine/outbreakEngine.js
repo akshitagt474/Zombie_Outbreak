@@ -1,4 +1,10 @@
-import { bfsTick, bfsDistance, isHospitalReachable, wallKey } from "../algorithms/Bfs.js";
+import {
+  bfsTick,
+  bfsDistance,
+  infectedCanSpread,
+  isHospitalReachable,
+  wallKey,
+} from "../algorithms/Bfs.js";
 import { generateCity, getCityStats } from "./cityGenerator.js";
 import { calculateScore } from "./scoring.js";
 import {
@@ -235,12 +241,21 @@ function tickOutbreak(state) {
  * @returns {GameState}
  */
 export function placeWall(state, keyA, keyB) {
-  if (state.toolsLeft.wall <= 0) return state;
-  if (state.phase !== "prep" && state.phase !== "outbreak") return state;
+  const blockReason = getWallPlacementBlockReason(state, keyA, keyB);
+  if (blockReason) {
+    if (
+      blockReason.startsWith("Hospital perimeter") ||
+      blockReason.startsWith("Prep rule")
+    ) {
+      return {
+        ...state,
+        log: addLog(state.log, state.elapsedSec, blockReason),
+      };
+    }
+    return state;
+  }
 
   const wKey = wallKey(keyA, keyB);
-  if (state.walls.has(wKey)) return state;  // already walled
-
   const newWalls = new Set(state.walls);
   newWalls.add(wKey);
 
@@ -402,12 +417,9 @@ export function setActiveTool(state, tool) {
  */
 export function nextRound(state) {
   const round = state.round + 1;
-  const difficulty =
-    round <= 2 ? "easy" :
-    round <= 4 ? "medium" : "hard";
 
   return createGameState(
-    difficulty,
+    state.difficulty,
     state.playerName,
     state.lives,
     state.totalScore,
@@ -421,21 +433,42 @@ export function nextRound(state) {
  * neighbour (i.e. the outbreak is not yet contained).
  */
 function canStillSpread(grid, walls, rows, cols) {
-  const dirs = [[-1,0],[1,0],[0,-1],[0,1]];
-  for (const [key, building] of grid.entries()) {
-    if (!building.infected) continue;
-    const { row, col } = building;
-    for (const [dr, dc] of dirs) {
-      const nr = row + dr, nc = col + dc;
-      if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
-      const nKey = `${nr},${nc}`;
-      const neighbour = grid.get(nKey);
-      if (!neighbour || neighbour.infected || neighbour.immune) continue;
-      const wKey = [key, nKey].sort().join("|");
-      if (!walls.has(wKey)) return true;
+  return infectedCanSpread(grid, walls, rows, cols);
+}
+
+function getWallPlacementBlockReason(state, keyA, keyB) {
+  if (state.toolsLeft.wall <= 0) return "No walls remaining.";
+  if (state.phase !== "prep" && state.phase !== "outbreak") return "Walls unavailable right now.";
+
+  const buildingA = state.grid.get(keyA);
+  const buildingB = state.grid.get(keyB);
+  if (!buildingA || !buildingB) return "Invalid wall target.";
+
+  const rowDelta = Math.abs(buildingA.row - buildingB.row);
+  const colDelta = Math.abs(buildingA.col - buildingB.col);
+  if (rowDelta + colDelta !== 1) return "Walls must connect adjacent buildings.";
+
+  if (buildingA.isHospital || buildingB.isHospital) {
+    return "Hospital perimeter is protected. Block routes before they reach it.";
+  }
+
+  const wKey = wallKey(keyA, keyB);
+  if (state.walls.has(wKey)) return "Wall already placed.";
+
+  if (state.phase === "prep") {
+    const newWalls = new Set(state.walls);
+    newWalls.add(wKey);
+
+    if (!infectedCanSpread(state.grid, newWalls, state.rows, state.cols)) {
+      return "Prep rule: leave at least one route open from the outbreak source.";
     }
   }
-  return false;
+
+  return null;
+}
+
+export function canPlaceWall(state, keyA, keyB) {
+  return getWallPlacementBlockReason(state, keyA, keyB) === null;
 }
 
 /**

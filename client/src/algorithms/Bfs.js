@@ -129,3 +129,22 @@ export function bfsDistance(targetKey, grid, walls, rows, cols) {
 
   return null;
 }
+
+export function infectedCanSpread(grid, walls, rows, cols) {
+  for (const [key, building] of grid.entries()) {
+    if (!building.infected || building.immune) continue;
+
+    const { row, col } = building;
+    const neighbours = getNeighbours(row, col, rows, cols);
+
+    for (const neighbourKey of neighbours) {
+      const neighbour = grid.get(neighbourKey);
+      if (!neighbour) continue;
+      if (neighbour.infected || neighbour.immune) continue;
+      if (hasWall(walls, key, neighbourKey)) continue;
+      return true;
+    }
+  }
+
+  return false;
+}

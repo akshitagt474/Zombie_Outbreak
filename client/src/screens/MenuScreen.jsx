@@ -1,19 +1,24 @@
+/**
+ * MENU SCREEN — Step 4B (updated)
+ *
+ * Now receives the logged-in player from Firebase auth.
+ * Shows registration number + username in the header.
+ * Name input is removed — we use the Firebase display name.
+ */
+
 import { useState } from "react";
-import { C } from "../constants.js";
-import Leaderboard from "../components/Leaderboard.jsx";
+import { C }        from "../constants.js";
+import Leaderboard  from "../components/Leaderboard.jsx";
 
 const DIFFICULTIES = [
-  { id: "easy",   label: "Easy",   sub: "12×10 · 10 walls · 4 hazmat" },
-  { id: "medium", label: "Medium", sub: "16×13 · 8 walls · 3 hazmat"  },
-  { id: "hard",   label: "Hard",   sub: "20×16 · 5 walls · 2 hazmat"  },
+  { id: "easy",   label: "Easy",   sub: "12×10 · 14 walls · 5 hazmat" },
+  { id: "medium", label: "Medium", sub: "16×13 · 12 walls · 4 hazmat" },
+  { id: "hard",   label: "Hard",   sub: "20×16 · 8 walls · 3 hazmat"  },
 ];
 
-export default function MenuScreen({ onStart }) {
-  const [name,       setName]       = useState("");
+export default function MenuScreen({ player, onStart, onLogout }) {
   const [difficulty, setDifficulty] = useState("medium");
   const [showLb,     setShowLb]     = useState(false);
-
-  const canStart = name.trim().length > 0;
 
   return (
     <div style={S.page}>
@@ -29,13 +34,22 @@ export default function MenuScreen({ onStart }) {
 
       <div style={S.center}>
         {/* Logo */}
-        <div style={S.logo}>
-          <div style={S.logoBadge}>CDC CRISIS RESPONSE SYSTEM</div>
-          <h1 style={S.logoTitle}>ZOMBIE<br />OUTBREAK</h1>
-          <p style={S.logoSub}>BFS CONTAINMENT PROTOCOL</p>
+        <div style={{ textAlign: "center" }}>
+          <div style={S.badge}>CDC CRISIS RESPONSE SYSTEM</div>
+          <h1 style={S.title}>ZOMBIE<br />OUTBREAK</h1>
+          <p style={S.sub}>BFS CONTAINMENT PROTOCOL</p>
         </div>
 
-        {/* Brief rules */}
+        {/* Player badge */}
+        <div style={S.playerCard}>
+          <div style={S.playerInfo}>
+            <div style={S.playerName}>{player.displayName}</div>
+            <div style={S.playerReg}>{player.regNumber}</div>
+          </div>
+          <button onClick={onLogout} style={S.logoutBtn}>SIGN OUT</button>
+        </div>
+
+        {/* Rules */}
         <div style={S.rulesCard}>
           <div style={S.rulesTitle}>MISSION BRIEFING</div>
           <div style={S.rulesGrid}>
@@ -48,19 +62,9 @@ export default function MenuScreen({ onStart }) {
           </div>
         </div>
 
-        {/* Name + difficulty */}
+        {/* Difficulty */}
         <div style={S.formCard}>
-          <label style={S.label}>OPERATIVE CODENAME</label>
-          <input
-            value={name}
-            onChange={e => setName(e.target.value.slice(0, 24))}
-            placeholder="Enter your name..."
-            style={S.input}
-            onKeyDown={e => e.key === "Enter" && canStart && onStart(name.trim(), difficulty)}
-            autoFocus
-          />
-
-          <label style={{ ...S.label, marginTop: 14 }}>DIFFICULTY</label>
+          <label style={S.label}>SELECT DIFFICULTY</label>
           <div style={S.diffRow}>
             {DIFFICULTIES.map(d => (
               <button
@@ -74,19 +78,14 @@ export default function MenuScreen({ onStart }) {
                 }}
               >
                 <div style={{ fontSize: 14, fontWeight: 700 }}>{d.label}</div>
-                <div style={{ fontSize: 10, opacity: 0.7, lineHeight: 1.4 }}>{d.sub}</div>
+                <div style={{ fontSize: 10, opacity: 0.7 }}>{d.sub}</div>
               </button>
             ))}
           </div>
 
           <button
-            onClick={() => canStart && onStart(name.trim(), difficulty)}
-            disabled={!canStart}
-            style={{
-              ...S.startBtn,
-              opacity: canStart ? 1 : 0.4,
-              cursor:  canStart ? "pointer" : "not-allowed",
-            }}
+            onClick={() => onStart(player.displayName, difficulty)}
+            style={S.startBtn}
           >
             ▶ DEPLOY TO FIELD
           </button>
@@ -102,9 +101,9 @@ export default function MenuScreen({ onStart }) {
 
 function Rule({ icon, text }) {
   return (
-    <div style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12, color: C.dim, lineHeight: 1.5 }}>
-      <span style={{ fontSize: 12, flexShrink: 0 }}>{icon}</span>
-      {text}
+    <div style={{ display: "flex", gap: 8, alignItems: "flex-start",
+      fontSize: 12, color: C.dim, lineHeight: 1.5 }}>
+      <span>{icon}</span>{text}
     </div>
   );
 }
@@ -124,7 +123,8 @@ const S = {
   page: {
     minHeight: "100vh", background: C.bg,
     display: "flex", alignItems: "center", justifyContent: "center",
-    padding: 24, position: "relative", fontFamily: "'Rajdhani', sans-serif",
+    padding: 24, position: "relative",
+    fontFamily: "'Rajdhani',sans-serif",
   },
   lbOverlay: {
     position: "fixed", inset: 0, background: "rgba(6,10,15,0.9)",
@@ -134,51 +134,65 @@ const S = {
   center: {
     position: "relative", zIndex: 1,
     width: "100%", maxWidth: 480,
-    display: "flex", flexDirection: "column", gap: 20,
+    display: "flex", flexDirection: "column", gap: 16,
   },
-  logo: { textAlign: "center" },
-  logoBadge: { fontSize: 10, letterSpacing: 6, color: C.accent, fontFamily: "'Share Tech Mono',monospace", marginBottom: 10 },
-  logoTitle: {
+  badge: { fontSize: 10, letterSpacing: 6, color: C.accent,
+    fontFamily: "'Share Tech Mono',monospace", textAlign: "center" },
+  title: {
     fontSize: "clamp(2.8rem,9vw,4.5rem)", fontWeight: 700,
     lineHeight: 0.88, letterSpacing: -3, color: C.text,
-    textShadow: `0 0 40px ${C.danger}33`, margin: "0 0 10px",
+    textShadow: `0 0 40px ${C.danger}33`,
+    margin: "0 0 10px", textAlign: "center",
   },
-  logoSub: { fontSize: 11, letterSpacing: 5, color: C.dim, fontFamily: "'Share Tech Mono',monospace", margin: 0 },
+  sub: { fontSize: 11, letterSpacing: 5, color: C.dim,
+    fontFamily: "'Share Tech Mono',monospace", textAlign: "center", margin: 0 },
+  playerCard: {
+    background: C.panel, border: `1px solid ${C.accent}44`,
+    borderRadius: 10, padding: "12px 16px",
+    display: "flex", justifyContent: "space-between", alignItems: "center",
+  },
+  playerInfo: { display: "flex", flexDirection: "column", gap: 2 },
+  playerName: { fontSize: 16, fontWeight: 700, color: C.accent },
+  playerReg:  { fontSize: 11, color: C.dim,
+    fontFamily: "'Share Tech Mono',monospace", letterSpacing: 2 },
+  logoutBtn: {
+    background: "transparent", border: `1px solid ${C.panelBorder}`,
+    borderRadius: 6, padding: "6px 12px", color: C.dim,
+    cursor: "pointer", fontSize: 11,
+    fontFamily: "'Share Tech Mono',monospace", letterSpacing: 1,
+  },
   rulesCard: {
     background: C.panel, border: `1px solid ${C.panelBorder}`,
     borderRadius: 10, padding: "14px 16px",
   },
-  rulesTitle: { fontSize: 9, letterSpacing: 4, color: C.accent, fontFamily: "'Share Tech Mono',monospace", marginBottom: 10 },
-  rulesGrid: { display: "flex", flexDirection: "column", gap: 6 },
+  rulesTitle: { fontSize: 9, letterSpacing: 4, color: C.accent,
+    fontFamily: "'Share Tech Mono',monospace", marginBottom: 10 },
+  rulesGrid:  { display: "flex", flexDirection: "column", gap: 6 },
   formCard: {
     background: C.panel, border: `1px solid ${C.panelBorder}`,
     borderRadius: 10, padding: "18px 20px",
+    display: "flex", flexDirection: "column", gap: 12,
   },
-  label: { display: "block", fontSize: 9, letterSpacing: 4, color: C.dim, fontFamily: "'Share Tech Mono',monospace", marginBottom: 8 },
-  input: {
-    width: "100%", padding: "11px 14px", borderRadius: 8,
-    border: `1px solid ${C.panelBorder}`, background: "#070d14",
-    color: C.text, fontSize: 16, fontFamily: "'Rajdhani',sans-serif",
-    outline: "none", boxSizing: "border-box",
-  },
-  diffRow: { display: "flex", gap: 8, marginBottom: 16 },
+  label: { fontSize: 9, letterSpacing: 4, color: C.dim,
+    fontFamily: "'Share Tech Mono',monospace" },
+  diffRow: { display: "flex", gap: 8 },
   diffBtn: {
     flex: 1, padding: "10px 8px", borderRadius: 8,
     border: "1px solid", background: "transparent",
-    cursor: "pointer", transition: "all 0.15s", textAlign: "center",
-    fontFamily: "'Rajdhani',sans-serif",
+    cursor: "pointer", transition: "all 0.15s",
+    textAlign: "center", fontFamily: "'Rajdhani',sans-serif",
   },
   startBtn: {
     width: "100%", padding: "14px", borderRadius: 10,
     border: `1px solid ${C.accent}`, background: `${C.accent}22`,
     color: C.accent, fontSize: 16, fontWeight: 700,
     fontFamily: "'Rajdhani',sans-serif", letterSpacing: 3,
-    transition: "all 0.15s",
+    cursor: "pointer", transition: "all 0.15s",
   },
   lbBtn: {
     background: "transparent", border: `1px solid ${C.panelBorder}`,
-    borderRadius: 10, padding: "12px", color: C.dim, cursor: "pointer",
-    fontFamily: "'Rajdhani',sans-serif", fontSize: 14, fontWeight: 600,
-    letterSpacing: 2, width: "100%",
+    borderRadius: 10, padding: "12px", color: C.dim,
+    cursor: "pointer", fontFamily: "'Rajdhani',sans-serif",
+    fontSize: 14, fontWeight: 600, letterSpacing: 2, width: "100%",
   },
 };

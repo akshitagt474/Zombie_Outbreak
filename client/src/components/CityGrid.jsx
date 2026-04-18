@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { wallKey } from "../algorithms/Bfs.js";
 import { getOpenNeighbourKeys } from "../engine/cityGenerator.js";
+import { canPlaceWall } from "../engine/outbreakEngine.js";
 import { C, BUILDING_TYPES } from "../constants.js";
 
 const CELL_SIZES = { easy: 44, medium: 34, hard: 28 };
@@ -23,8 +24,11 @@ export default function CityGrid({ gameState, selectedKey, onClickBuilding }) {
   // Valid targets for wall placement (neighbours of selectedKey)
   const validWallTargets = useMemo(() => {
     if (activeTool !== "wall" || !selectedKey) return new Set();
-    return new Set(getOpenNeighbourKeys(selectedKey, grid, wallSet, rows, cols));
-  }, [activeTool, selectedKey, grid, wallSet, rows, cols]);
+    const openNeighbours = getOpenNeighbourKeys(selectedKey, grid, wallSet, rows, cols);
+    return new Set(
+      openNeighbours.filter((targetKey) => canPlaceWall(gameState, selectedKey, targetKey))
+    );
+  }, [activeTool, gameState, selectedKey, grid, wallSet, rows, cols]);
 
   // Collect all placed walls as line coords
   const wallLines = useMemo(() => {
